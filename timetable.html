@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Achievify — Timetable Upload</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+<style>
+  :root{ --ink:#0f172a; --muted:#64748b; --ring:rgba(15,23,42,.12); --bg:#fdfaff;
+         --p1:#ffb3ba; --p2:#bae1ff; --p3:#baffc9; }
+  *{box-sizing:border-box} html,body{height:100%}
+  body{
+    margin:0; background:
+      radial-gradient(900px 900px at 12% 10%, rgba(255,179,186,.35), transparent 60%),
+      radial-gradient(900px 900px at 88% 8%, rgba(186,225,255,.30), transparent 55%),
+      var(--bg);
+    color:var(--ink); font-family:Inter,system-ui,Segoe UI,Roboto,Arial; min-height:100vh;
+  }
+  header{
+    position:sticky; top:0; background:#fff; border-bottom:1px solid var(--ring);
+    padding:14px 18px; display:flex; align-items:center; gap:12px; justify-content:space-between;
+  }
+  .brand{display:flex; align-items:center; gap:10px; font-weight:800}
+  .dot{width:12px; height:12px; border-radius:50%; background:conic-gradient(from 0deg,var(--p1),var(--p2),var(--p3))}
+  .pill{border:1px solid var(--ring); padding:8px 14px; border-radius:999px; text-decoration:none; color:var(--ink)}
+  .wrap{max-width:980px; margin:22px auto; padding:0 16px}
+  .card{background:#fff; border:1px solid var(--ring); border-radius:18px; padding:18px; box-shadow:0 18px 50px var(--ring)}
+
+  h1{margin:0 0 8px; font-size:28px}
+  .sub{margin:0 0 16px; color:var(--muted)}
+
+  .grid{display:grid; grid-template-columns: 1.1fr .9fr; gap:18px}
+  @media (max-width:980px){ .grid{grid-template-columns:1fr} }
+
+  .drop{
+    border:2px dashed #d1d5db; border-radius:16px; padding:18px; text-align:center; background:#fafafa;
+    transition:border-color .2s ease, background .2s ease;
+  }
+  .drop.drag{border-color:#111827; background:#fff}
+  .drop input{display:none}
+  .actions{margin-top:12px; display:flex; gap:10px; justify-content:center}
+  .btn{border:none; padding:12px 16px; border-radius:12px; font-weight:700; cursor:pointer}
+  .btn.dark{background:#111827; color:#fff}
+  .btn.light{background:#fff; color:#111827; border:1px solid var(--ring)}
+  .thumb{
+    border:1px solid var(--ring); border-radius:16px; overflow:hidden; background:#fff; display:grid; place-items:center;
+    min-height:300px
+  }
+  .thumb img{max-width:100%; height:auto; display:block}
+  .pdfNote{font-size:13px; color:#94a3b8; margin-top:6px; text-align:center}
+  .row{display:grid; grid-template-columns:1fr auto; gap:10px; align-items:center; margin-top:12px}
+  .input{padding:12px 14px; border:1px solid #e5e7eb; border-radius:12px; font-size:16px; outline:none}
+  .input:focus{border-color:#111827}
+  .currentTitle{font-weight:700}
+  .danger{color:#b91c1c}
+</style>
+</head>
+<body>
+<header>
+  <div class="brand"><span class="dot"></span>Achievify</div>
+  <nav style="display:flex; gap:8px">
+    <a class="pill" href="features.html">← Features</a>
+    <a class="pill" href="#" id="logout">Logout</a>
+  </nav>
+</header>
+
+<div class="wrap">
+  <div class="card">
+    <h1>Timetable</h1>
+    <p class="sub">Upload an image (PNG/JPEG/WEBP) or a PDF. We’ll pin the latest one for quick access.</p>
+
+    <div class="grid">
+      <!-- left: upload -->
+      <section>
+        <label class="row">
+          <input id="title" class="input" placeholder="Add a short title (e.g., Semester 5)" />
+        </label>
+
+        <div id="drop" class="drop" tabindex="0" aria-label="Upload zone">
+          <p><strong>Drag & drop</strong> your timetable here,<br/>or click to choose a file.</p>
+          <p class="pdfNote">Allowed: PNG, JPG, WEBP or PDF (max 8MB)</p>
+          <input id="file" type="file" accept="image/png,image/jpeg,image/webp,application/pdf" />
+        </div>
+
+        <div class="actions">
+          <button id="uploadBtn" class="btn dark">Save / Replace</button>
+          <button id="clearBtn" class="btn light">Clear selection</button>
+        </div>
+        <div id="status" class="sub" style="margin-top:8px;"></div>
+      </section>
+
+      <!-- right: current -->
+      <section>
+        <div class="thumb" id="thumb"><span class="sub">No timetable yet.</span></div>
+        <div class="row">
+          <div><span class="currentTitle" id="currentTitle">—</span></div>
+          <button id="deleteBtn" class="btn light danger">Delete current</button>
+        </div>
+      </section>
+    </div>
+  </div>
+</div>
+
+<script>
+const raw = localStorage.getItem('achievifyUser');
+if(!raw){ location.href='login.html'; }
+const user = JSON.parse(raw);
+
+document.getElementById('logout').addEventListener('click', (e)=>{ e.preventDefault(); localStorage.removeItem('achievifyUser'); location.href='index.html'; });
+
+const drop = document.getElementById('drop');
+const fileInput = document.getElementById('file');
+const uploadBtn = document.getElementById('uploadBtn');
+const clearBtn = document.getElementById('clearBtn');
+const titleEl = document.getElementById('title');
+const statusEl = document.getElementById('status');
+const thumb = document.getElementById('thumb');
+const deleteBtn = document.getElementById('deleteBtn');
+const currentTitleEl = document.getElementById('currentTitle');
+
+let latest = null; // last uploaded record
+let chosenFile = null;
+
+function setStatus(text, ok=false){
+  statusEl.textContent = text;
+  statusEl.style.color = ok ? '#166534' : '#b91c1c';
+}
+
+function preview(file){
+  thumb.innerHTML = '';
+  if (!file) { thumb.innerHTML = '<span class="sub">No file selected.</span>'; return; }
+
+  if (file.type === 'application/pdf') {
+    const note = document.createElement('div');
+    note.innerHTML = '<div class="pdfNote">PDF selected — preview shows file name</div>';
+    const name = document.createElement('div'); name.style.marginTop='6px'; name.textContent = file.name;
+    thumb.append(note, name);
+  } else {
+    const img = document.createElement('img');
+    img.src = URL.createObjectURL(file);
+    img.onload = () => URL.revokeObjectURL(img.src);
+    thumb.appendChild(img);
+  }
+}
+function previewCurrent(){
+  thumb.innerHTML = '';
+  if(!latest){ thumb.innerHTML = '<span class="sub">No timetable yet.</span>'; currentTitleEl.textContent = '—'; return; }
+  currentTitleEl.textContent = latest.title;
+  if (latest.mime === 'application/pdf') {
+    const a = document.createElement('a');
+    a.href = '/' + latest.file_path; a.textContent = 'Open current PDF'; a.target = '_blank';
+    thumb.appendChild(a);
+  } else {
+    const img = document.createElement('img');
+    img.src = '/' + latest.file_path;
+    thumb.appendChild(img);
+  }
+}
+
+async function fetchLatest(){
+  const res = await fetch('/api/timetable?userId=' + user.id);
+  latest = await res.json();
+  previewCurrent();
+}
+
+drop.addEventListener('click', () => fileInput.click());
+drop.addEventListener('dragover', (e)=>{ e.preventDefault(); drop.classList.add('drag'); });
+drop.addEventListener('dragleave', ()=> drop.classList.remove('drag'));
+drop.addEventListener('drop', (e)=> {
+  e.preventDefault(); drop.classList.remove('drag');
+  if(!e.dataTransfer.files?.length) return;
+  chosenFile = e.dataTransfer.files[0];
+  fileInput.files = e.dataTransfer.files;
+  preview(chosenFile);
+});
+fileInput.addEventListener('change', ()=> {
+  chosenFile = fileInput.files[0]; preview(chosenFile);
+});
+clearBtn.addEventListener('click', ()=> {
+  fileInput.value = ''; chosenFile = null; preview(null);
+});
+
+uploadBtn.addEventListener('click', async ()=> {
+  if(!chosenFile) return setStatus('Choose a file first.');
+  const title = (titleEl.value || '').trim();
+  if(!title) return setStatus('Add a title for your timetable.');
+
+  const form = new FormData();
+  form.append('userId', user.id);
+  form.append('title', title);
+  form.append('file', chosenFile);
+
+  uploadBtn.disabled = true; setStatus('');
+  try{
+    const res = await fetch('/api/timetable', { method: 'POST', body: form });
+    const out = await res.json();
+    if(!res.ok) return setStatus(out.message || 'Upload failed');
+    latest = out; previewCurrent(); setStatus('Saved ✔', true);
+    titleEl.value = ''; fileInput.value=''; chosenFile=null;
+  }catch(err){
+    setStatus('Server error. Is Node running?');
+  }finally{ uploadBtn.disabled = false; }
+});
+
+deleteBtn.addEventListener('click', async ()=>{
+  if(!latest) return;
+  if(!confirm('Delete current timetable?')) return;
+  const res = await fetch('/api/timetable/' + latest.id + '?userId=' + user.id, { method:'DELETE' });
+  if(res.ok){ latest = null; previewCurrent(); setStatus('Deleted ✔', true); }
+  else { const out = await res.json().catch(()=> ({})); setStatus(out.message || 'Delete failed'); }
+});
+
+// init
+fetchLatest();
+</script>
+</body>
+</html>
